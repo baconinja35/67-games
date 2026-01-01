@@ -292,28 +292,75 @@
         <h2>Shop</h2>
         <p class="tiny" id="shopTopLine"></p>
       </div>
-      <div class="row" style="justify-content:flex-end;">
+      <div class="row" style="justify-content:flex-end; gap:10px;">
+        <button id="shopTabActions" class="primary">Actions</button>
+        <button id="shopTabDeck">Deck</button>
+        <button id="shopTabSettings">Settings</button>
         <button id="skipShopBtn">Done</button>
       </div>
     </div>
 
-    <div class="shop-grid">
-      <div class="shop-box">
-        <h3>Your 4 Action Slots</h3>
-        <p class="tiny">Sell any card to make room. Empty slots are buyable.</p>
-        <div class="divider"></div>
-        <div id="loadoutList" class="row left" style="flex-direction:column; gap:10px;"></div>
-      </div>
+    <div class="divider"></div>
 
-      <div class="shop-box">
-        <h3>For Sale (3)</h3>
-        <p class="tiny">Buy puts it into an empty slot. No empty slot = no buy.</p>
+    <!-- ACTIONS TAB -->
+    <div id="shopPanelActions">
+      <div class="shop-grid">
+        <div class="shop-box">
+          <h3>Your 4 Action Slots</h3>
+          <p class="tiny">Sell any card to make room. Empty slots are buyable.</p>
+          <div class="divider"></div>
+          <div id="loadoutList" class="row left" style="flex-direction:column; gap:10px;"></div>
+        </div>
+
+        <div class="shop-box">
+          <h3>For Sale (3)</h3>
+          <p class="tiny">Only actions you don’t already own appear here.</p>
+          <div class="divider"></div>
+          <div id="shopOffers" class="row left" style="flex-direction:column; gap:10px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DECK TAB -->
+    <div id="shopPanelDeck" style="display:none;">
+      <div class="shop-grid">
+        <div class="shop-box">
+          <h3>Your 5 Deck Additions</h3>
+          <p class="tiny">These replace default filler glyphs in the board deck.</p>
+          <div class="divider"></div>
+          <div id="deckList" class="row left" style="flex-direction:column; gap:10px;"></div>
+        </div>
+
+        <div class="shop-box">
+          <h3>Deck Cards For Sale</h3>
+          <p class="tiny">Buy adds a deck card into an empty deck slot.</p>
+          <div class="divider"></div>
+          <div id="deckOffers" class="row left" style="flex-direction:column; gap:10px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="shopPanelSettings" style="display:none;">
+      <div class="shop-box" style="max-width:760px; margin: 0 auto;">
+        <h3>Timer Settings</h3>
+        <p class="tiny">Change the base round timer. (Saved automatically.)</p>
         <div class="divider"></div>
-        <div id="shopOffers" class="row left" style="flex-direction:column; gap:10px;"></div>
+
+        <div class="row left" style="align-items:center; gap:14px;">
+          <div style="min-width:220px;">Base timer (seconds): <b id="baseTimerReadout"></b></div>
+          <input id="baseTimerSlider" type="range" min="8" max="60" step="1" style="width:min(420px, 70vw);" />
+          <button id="baseTimerResetBtn">Reset</button>
+        </div>
+
+        <p class="tiny" style="margin-top:12px;">
+          Round time = base timer minus a small amount each round (difficulty ramp). Minimum is still enforced.
+        </p>
       </div>
     </div>
   </div>
 </div>
+
 
 <script>
 /* =========================
@@ -343,6 +390,25 @@ const loadoutList = document.getElementById('loadoutList');
 const shopOffers = document.getElementById('shopOffers');
 const skipShopBtn = document.getElementById('skipShopBtn');
 
+// Shop tabs
+const shopTabActions = document.getElementById('shopTabActions');
+const shopTabDeck = document.getElementById('shopTabDeck');
+const shopTabSettings = document.getElementById('shopTabSettings');
+
+const shopPanelActions = document.getElementById('shopPanelActions');
+const shopPanelDeck = document.getElementById('shopPanelDeck');
+const shopPanelSettings = document.getElementById('shopPanelSettings');
+
+// Deck shop UI
+const deckList = document.getElementById('deckList');
+const deckOffers = document.getElementById('deckOffers');
+
+// Settings UI
+const baseTimerReadout = document.getElementById('baseTimerReadout');
+const baseTimerSlider = document.getElementById('baseTimerSlider');
+const baseTimerResetBtn = document.getElementById('baseTimerResetBtn');
+
+
 /* =========================
    Game State
 ========================= */
@@ -363,6 +429,22 @@ let pingCharges = 0;       // NEXT 3 clicks become sticky revealed for the rest 
 let lockOnArmed = false;   // Next clicked target becomes frozen for the rest of the round
 
 let pendingNextAction = null; // "advance" or "retry" or "menu" used after shop
+
+  // Timer settings (base time is user-adjustable)
+let baseTimerSeconds = Number(localStorage.getItem('baseTimerSeconds') || 22); // slower default
+const minBaseTimer = 8;
+const maxBaseTimer = 60;
+
+function roundTimeTotal() {
+  // Gradual difficulty ramp; still respects the base timer
+  const total = baseTimerSeconds - (round - 1) * 0.6;
+  return Math.max(6, total);
+}
+
+function saveTimerSetting() {
+  localStorage.setItem('baseTimerSeconds', String(baseTimerSeconds));
+}
+
 
 const falseGlyphs = ['⟟','⧗','⌶','⟁','⟊','⧖','⟐','⧋','⧎','⌁','⟰','⟱'];
 
@@ -459,8 +541,21 @@ const ACTIONS = {
 
 const ALL_ACTION_IDS = Object.keys(ACTIONS);
 
-let loadout = ['stabilize','ping','lockon','scramble']; // 4 slots
+let loadout = [null,null,null,null]; // 4 action slots (start with 1 random later)
 let shopPool = [];
+
+// Deck additions (5 slots)
+const DECK_CARDS = {
+  money: { id:'money', name:'Cash Cache', shopCost: 8, sellValue: 4, count: 4, desc:'Adds 4 money cards into the deck. Clicking one grants +2 credits.' },
+  energy:{ id:'energy', name:'Battery',   shopCost: 7, sellValue: 3, count: 3, desc:'Adds 3 energy cards into the deck. Clicking one grants +1 energy.' },
+  reveal:{ id:'reveal', name:'All-Scan',  shopCost: 9, sellValue: 4, count: 2, desc:'Adds 2 scan cards into the deck. Clicking one reveals all cards briefly.' },
+  heal:  { id:'heal',   name:'Med Patch', shopCost:10, sellValue: 5, count: 4, desc:'Adds 4 heal cards into the deck. Clicking one heals +1 HP (max 15).' }
+};
+const ALL_DECK_IDS = Object.keys(DECK_CARDS);
+
+let deckLoadout = [null,null,null,null,null]; // 5 deck slots
+let deckShopPool = []; // offers (all 4 types)
+
 
 /* per-round one-time effect flags */
 let focusUsedThisRound = false;
@@ -517,8 +612,15 @@ function newRun(){
   hp = 15;
   credits = 0;
 
-  loadout = ['stabilize','ping','lockon','scramble'];
-  startRound();
+  // Start with exactly 1 random action, other slots empty
+loadout = [null,null,null,null];
+const first = ALL_ACTION_IDS[Math.floor(Math.random() * ALL_ACTION_IDS.length)];
+loadout[0] = first;
+
+deckLoadout = [null,null,null,null,null]; // start with no deck additions
+
+startRound();
+
 }
 
 function startRound() {
@@ -539,20 +641,34 @@ function startRound() {
   lockOnArmed = false;
   focusUsedThisRound = false;
 
-  timeLeft = Math.max(6, 14 - round);
+  timeLeft = roundTimeTotal();
   startTimer();
 
   drawLoadoutBar();
 
-  const values = shuffle(['6','7', ...falseGlyphs]).slice(0,16);
-  values.forEach(v => spawnCard(v));
+  // Build deck: 6/7 + filler glyphs, but replace some filler with deck additions
+const additions = [];
+
+deckLoadout.filter(Boolean).forEach(id => {
+  const def = DECK_CARDS[id];
+  for (let i=0; i<def.count; i++) additions.push(id);
+});
+
+// Start with 6/7 + additions + filler to reach 16
+const base = ['6','7', ...additions];
+const fillerNeeded = Math.max(0, 16 - base.length);
+const filler = shuffle([...falseGlyphs]).slice(0, fillerNeeded);
+
+const values = shuffle([...base, ...filler]).slice(0,16);
+values.forEach(v => spawnCard(v));
+
 
   animate();
   updateUI();
 }
 
 function startTimer() {
-  const total = Math.max(6, 14 - round);
+  const total = roundTimeTotal();
   timerFill.style.width = '100%';
   timerInterval = setInterval(() => {
     timeLeft -= 0.1;
@@ -620,17 +736,62 @@ skipShopBtn.onclick = () => {
     startRound();
   }
 };
+  shopTabActions.onclick = () => setShopTab('actions');
+shopTabDeck.onclick = () => setShopTab('deck');
+shopTabSettings.onclick = () => setShopTab('settings');
+
+function setShopTab(which){
+  shopPanelActions.style.display = (which === 'actions') ? 'block' : 'none';
+  shopPanelDeck.style.display = (which === 'deck') ? 'block' : 'none';
+  shopPanelSettings.style.display = (which === 'settings') ? 'block' : 'none';
+
+  shopTabActions.classList.toggle('primary', which === 'actions');
+  shopTabDeck.classList.toggle('primary', which === 'deck');
+  shopTabSettings.classList.toggle('primary', which === 'settings');
+
+  // refresh settings UI when opened
+  if (which === 'settings') renderSettings();
+}
+
+function renderSettings(){
+  baseTimerSlider.min = String(minBaseTimer);
+  baseTimerSlider.max = String(maxBaseTimer);
+  baseTimerSlider.value = String(baseTimerSeconds);
+  baseTimerReadout.textContent = String(baseTimerSeconds);
+
+  baseTimerSlider.oninput = () => {
+    baseTimerSeconds = Number(baseTimerSlider.value);
+    baseTimerReadout.textContent = String(baseTimerSeconds);
+    saveTimerSetting();
+  };
+
+  baseTimerResetBtn.onclick = () => {
+    baseTimerSeconds = 22;
+    baseTimerSlider.value = String(baseTimerSeconds);
+    baseTimerReadout.textContent = String(baseTimerSeconds);
+    saveTimerSetting();
+  };
+}
+
 
 function openShop(){
   endOverlay.classList.remove('show');
   shopOverlay.classList.add('show');
 
-  // Generate 3 offers (no duplicates, can include cards you already own)
-  const ids = shuffle([...ALL_ACTION_IDS]).slice(0,3);
+  // Action offers: 3 random actions NOT already owned
+  const owned = new Set(loadout.filter(Boolean));
+  const candidates = ALL_ACTION_IDS.filter(id => !owned.has(id));
+  const ids = shuffle([...candidates]).slice(0,3);
   shopPool = ids.map(id => ACTIONS[id]);
 
+  // Deck offers: fixed set (money/energy/reveal/heal)
+  deckShopPool = ALL_DECK_IDS.map(id => DECK_CARDS[id]);
+
+  // Default tab
+  setShopTab('actions');
   renderShop();
 }
+
 
 function renderShop(){
   shopTopLine.textContent = `Round ended. Credits: ${credits}.`;
@@ -724,12 +885,105 @@ function renderShop(){
     box.appendChild(right);
     shopOffers.appendChild(box);
   });
+    // Deck loadout (5 slots)
+  deckList.innerHTML = '';
+  for (let i=0; i<5; i++){
+    const id = deckLoadout[i] || null;
+
+    const box = document.createElement('div');
+    box.className = 'shop-card';
+
+    const left = document.createElement('div');
+    const right = document.createElement('div');
+
+    if (id){
+      const d = DECK_CARDS[id];
+      left.innerHTML = `
+        <h3>${escapeHTML(d.name)}</h3>
+        <div class="meta">Adds: <b>${d.count}</b> cards · Sell: <b>${d.sellValue}</b> credits</div>
+        <div class="desc">${escapeHTML(d.desc)}</div>
+      `;
+      const sell = document.createElement('button');
+      sell.className = 'danger';
+      sell.textContent = 'Sell';
+      sell.onclick = () => {
+        credits += d.sellValue;
+        deckLoadout[i] = null;
+        compactDeckLoadout();
+        renderShop();
+        updateUI();
+      };
+      right.appendChild(sell);
+    } else {
+      left.innerHTML = `
+        <h3>(Empty Slot)</h3>
+        <div class="meta">Buy a deck card to fill this slot.</div>
+        <div class="desc">No deck addition equipped.</div>
+      `;
+      const noop = document.createElement('button');
+      noop.disabled = true;
+      noop.textContent = 'Empty';
+      right.appendChild(noop);
+    }
+
+    box.appendChild(left);
+    box.appendChild(right);
+    deckList.appendChild(box);
+  }
+
+  // Deck offers (all 4 types)
+  deckOffers.innerHTML = '';
+  deckShopPool.forEach((d) => {
+    const box = document.createElement('div');
+    box.className = 'shop-card';
+
+    const left = document.createElement('div');
+    left.innerHTML = `
+      <h3>${escapeHTML(d.name)}</h3>
+      <div class="meta">Adds: <b>${d.count}</b> cards · Price: <b>${d.shopCost}</b> credits</div>
+      <div class="desc">${escapeHTML(d.desc)}</div>
+    `;
+
+    const right = document.createElement('div');
+    const buy = document.createElement('button');
+    buy.className = 'primary';
+    buy.textContent = 'Buy';
+
+    const emptyIndex = deckLoadout.findIndex(x => !x);
+    const canAfford = credits >= d.shopCost;
+    const hasSlot = emptyIndex !== -1;
+
+    buy.disabled = !(canAfford && hasSlot);
+
+    buy.onclick = () => {
+      if (credits < d.shopCost) return;
+      const idx = deckLoadout.findIndex(x => !x);
+      if (idx === -1) return;
+
+      credits -= d.shopCost;
+      deckLoadout[idx] = d.id;
+
+      renderShop();
+      updateUI();
+    };
+
+    right.appendChild(buy);
+    box.appendChild(left);
+    box.appendChild(right);
+    deckOffers.appendChild(box);
+  });
+
 }
 
 function compactLoadout(){
   loadout = loadout.filter(Boolean);
   while (loadout.length < 4) loadout.push(null);
 }
+  function compactDeckLoadout(){
+  deckLoadout = deckLoadout.filter(Boolean);
+  while (deckLoadout.length < 5) deckLoadout.push(null);
+}
+
 
 /* =========================
    Board + Cards
@@ -758,12 +1012,61 @@ function spawnCard(value) {
 function clickTarget(c) {
   if (lockClicks) return;
 
+  // If this is a deck addition card, resolve it immediately and remove it.
+  if (isDeckCard(c.value)) {
+    reveal(c);
+    resolveDeckCard(c);
+    return;
+  }
+
   // Lock-On: next chosen target is frozen for the rest of the round.
   if (lockOnArmed){
     lockOnArmed = false;
     c.frozen = true;
     c.el.classList.add('frozen');
   }
+
+  // Reveal on click
+  reveal(c);
+
+  // Ping: next 3 clicks become sticky revealed for the rest of the round
+  if (pingCharges > 0){
+    pingCharges--;
+    c.stickyRevealed = true;
+    c.el.classList.add('ping-sticky');
+  }
+
+  // Normal match logic (but sticky cards never hide)
+  if (!firstPick) {
+    firstPick = c;
+    updateUI();
+    return;
+  }
+
+  lockClicks = true;
+
+  const ok =
+    (firstPick.value === '6' && c.value === '7') ||
+    (firstPick.value === '7' && c.value === '6');
+
+  if (ok){
+    endRound(true, 'Round Clear', '+0 HP');
+    lockClicks = false;
+    return;
+  }
+
+  setTimeout(() => {
+    if (firstPick && !firstPick.stickyRevealed) hide(firstPick);
+    if (!c.stickyRevealed) hide(c);
+
+    firstPick = null;
+    lockClicks = false;
+    updateUI();
+  }, 700);
+
+  updateUI();
+}
+
 
   // Reveal on click
   reveal(c);
@@ -971,7 +1274,10 @@ function updateUI() {
 function reveal(c) {
   c.revealed = true;
   c.el.classList.add('revealed');
-  c.el.textContent = c.value;
+  c.el.textContent = isDeckCard(c.value)
+  ? (c.value === 'money' ? '$' : c.value === 'energy' ? '⚡' : c.value === 'reveal' ? '👁' : '✚')
+  : c.value;
+
   c.el.style.background = randomColor();
 }
 
@@ -986,6 +1292,35 @@ function hide(c) {
 /* =========================
    Helpers
 ========================= */
+  function isDeckCard(v){
+  return v === 'money' || v === 'energy' || v === 'reveal' || v === 'heal';
+}
+
+function resolveDeckCard(c){
+  // Apply effect
+  if (c.value === 'money') credits += 2;
+  if (c.value === 'energy') energy += 1;
+  if (c.value === 'reveal') scanAll();
+  if (c.value === 'heal') hp = Math.min(15, hp + 1);
+
+  // Remove from board so it can’t be farmed
+  removeCardFromBoard(c);
+
+  updateUI();
+}
+
+function removeCardFromBoard(c){
+  // detach click
+  c.el.onclick = null;
+
+  // Remove from DOM and state
+  try { c.el.remove(); } catch(e) {}
+  cards = cards.filter(x => x !== c);
+
+  // If it was firstPick, clear it
+  if (firstPick === c) firstPick = null;
+}
+
 function randVel() {
   return (Math.random() * 2 + 1) * (Math.random() < 0.5 ? -1 : 1);
 }
@@ -1022,3 +1357,4 @@ function loseRound(){ endRound(false, 'Too Slow', '-3 HP'); }
 
 </body>
 </html>
+
