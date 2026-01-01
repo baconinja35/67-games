@@ -1018,97 +1018,6 @@ function clickTarget(c) {
     resolveDeckCard(c);
     return;
   }
-
-  // Lock-On: next chosen target is frozen for the rest of the round.
-  if (lockOnArmed){
-    lockOnArmed = false;
-    c.frozen = true;
-    c.el.classList.add('frozen');
-  }
-
-  // Reveal on click
-  reveal(c);
-
-  // Ping: next 3 clicks become sticky revealed for the rest of the round
-  if (pingCharges > 0){
-    pingCharges--;
-    c.stickyRevealed = true;
-    c.el.classList.add('ping-sticky');
-  }
-
-  // Normal match logic (but sticky cards never hide)
-  if (!firstPick) {
-    firstPick = c;
-    updateUI();
-    return;
-  }
-
-  lockClicks = true;
-
-  const ok =
-    (firstPick.value === '6' && c.value === '7') ||
-    (firstPick.value === '7' && c.value === '6');
-
-  if (ok){
-    endRound(true, 'Round Clear', '+0 HP');
-    lockClicks = false;
-    return;
-  }
-
-  setTimeout(() => {
-    if (firstPick && !firstPick.stickyRevealed) hide(firstPick);
-    if (!c.stickyRevealed) hide(c);
-
-    firstPick = null;
-    lockClicks = false;
-    updateUI();
-  }, 700);
-
-  updateUI();
-}
-
-
-  // Reveal on click
-  reveal(c);
-
-  // Ping: next 3 clicks become sticky revealed for the rest of the round
-  if (pingCharges > 0){
-    pingCharges--;
-    c.stickyRevealed = true;
-    c.el.classList.add('ping-sticky');
-  }
-
-  // Normal match logic (but sticky cards never hide)
-  if (!firstPick) {
-    firstPick = c;
-    updateUI();
-    return;
-  }
-
-  lockClicks = true;
-
-  const ok =
-    (firstPick.value === '6' && c.value === '7') ||
-    (firstPick.value === '7' && c.value === '6');
-
-  if (ok){
-    endRound(true, 'Round Clear', '+0 HP');
-    lockClicks = false;
-    return;
-  }
-
-  setTimeout(() => {
-    if (firstPick && !firstPick.stickyRevealed) hide(firstPick);
-    if (!c.stickyRevealed) hide(c);
-
-    firstPick = null;
-    lockClicks = false;
-    updateUI();
-  }, 700);
-
-  updateUI();
-}
-
 function animate() {
   const w = arena.clientWidth;
   const h = arena.clientHeight;
@@ -1357,4 +1266,5 @@ function loseRound(){ endRound(false, 'Too Slow', '-3 HP'); }
 
 </body>
 </html>
+
 
